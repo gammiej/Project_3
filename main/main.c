@@ -1,3 +1,4 @@
+//imports
 #include "freertos/FreeRTOS.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
@@ -8,8 +9,6 @@
 #include <esp_idf_lib_helpers.h>
 #include <inttypes.h>
 #include <stdio.h>
-
-
 
 //Defining Pins
 //LEDS
@@ -30,12 +29,11 @@
 #define POT_ADC_CHAN_1 ADC_CHANNEL_0
 
 //ADC
-#define ADC_ATTEN       ADC_ATTEN_DB_12
-#define BITWIDTH        ADC_BITWIDTH_12
-
+#define ADC_ATTEN               ADC_ATTEN_DB_12
+#define BITWIDTH                ADC_BITWIDTH_12
 #define LEDC_TIMER              LEDC_TIMER_0
 #define LEDC_MODE               LEDC_LOW_SPEED_MODE
-#define LEDC_OUTPUT_IO         (19)
+#define LEDC_OUTPUT_IO          (19)
 #define LEDC_CHANNEL            LEDC_CHANNEL_0
 #define LEDC_DUTY_RES           LEDC_TIMER_13_BIT // Set duty resolution to 13 bits
 
@@ -43,9 +41,9 @@
 #define LEDC_FREQUENCY          (50) // Frequency in Hertz. 
 
 //min, max, and true full max angles for wipers
-#define WIPERS_MIN           (245) //0 degrees
-#define WIPERS_MAX           (620) //90 degrees
-#define WIPERS_FULL_MAX      (965) //180 degrees
+#define WIPERS_MIN              (245) //0 degrees
+#define WIPERS_MAX              (620) //90 degrees
+#define WIPERS_FULL_MAX         (965) //180 degrees
 
 //Setting windshield wiper select thresholds
 //for mode select
@@ -57,10 +55,11 @@
 #define SHORT_THRESH            0
 #define MED_THRESH              1057
 #define LONG_THRESH             2113
+#define MAX_THRESH              3170
 
 //DELAY
-#define LOOP_DELAY_MS 25 // Loop delay
-#define BUZZER_TIME 500 //time buzzer is on
+#define LOOP_DELAY_MS           25 // Loop delay
+#define BUZZER_TIME             500 //time buzzer is on
 
 //wiper variables
 volatile bool wipe_off;
@@ -71,9 +70,17 @@ volatile bool short_del;
 volatile bool med_del;
 volatile bool long_del;
 
+int short_del_ms = 1000;
+int med_del_ms = 3000;
+int long_del_ms = 5000;
+
 //defining steps for low and high speed for wipers
 int low_steps = 65;
 int high_steps = 30;
+
+//defining variables for wiper task
+int stack_depth = 4096;
+int wiper_task_priority = 5;
 
 //function declarations
 void perform_wipe_cycle(int steps);
@@ -147,7 +154,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(hd44780_init(&lcd));
 
     //creates wiper task
-    xTaskCreate(wiper_control_task, "Wiper_Task", 4096, NULL, 5, NULL);
+    xTaskCreate(wiper_control_task, "Wiper_Task", stack_depth, NULL, wiper_task_priority, NULL);
 
     //defining variables
     bool driver_occupied_prev = false;
@@ -197,7 +204,7 @@ void app_main(void) {
         //update wiper delay
         short_del = speed_select >= SHORT_THRESH && speed_select < MED_THRESH;
         med_del = speed_select >= MED_THRESH && speed_select < LONG_THRESH;
-        long_del = speed_select >= LONG_THRESH && speed_select <= 3170;
+        long_del = speed_select >= LONG_THRESH && speed_select <= MAX_THRESH;
 
         //upate can_start variable based on current button states
         can_start = driver_occupied && driver_belt && pass_occupied && pass_belt;
@@ -291,17 +298,17 @@ void wiper_control_task(void *pvParameters) {
         else if(wipe_int) {
             perform_wipe_cycle(low_steps);
 
-            int delay_ms = 1000;
-            if(short_del) delay_ms = 1000;
-            if(med_del) delay_ms = 3000;
-            if(long_del) delay_ms = 5000;
+            int delay_ms = short_del_ms;
+            if(short_del) delay_ms = short_del_ms;
+            if(med_del) delay_ms = med_del_ms;
+            if(long_del) delay_ms = long_del_ms;
 
             vTaskDelay(delay_ms/portTICK_PERIOD_MS);
         }
         else {
             ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, WIPERS_MIN);
             ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
+            vTaskDelay(LOOP_DELAY_MS / portTICK_PERIOD_MS); //MIGHT CAUSE PROBLEMS, CHECK WITH BOARD
         }
     }
 }
